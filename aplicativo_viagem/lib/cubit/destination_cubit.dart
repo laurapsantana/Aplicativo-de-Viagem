@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/destination.dart';
+
 
 // Estados
 abstract class DestinationState extends Equatable {
@@ -21,9 +24,12 @@ class DestinationLoaded extends DestinationState {
 
 // Cubit
 class DestinationCubit extends Cubit<DestinationState> {
+  static const _favoritesKey = 'favoriteDestinations'; // Chave para salvar favoritos
+
   DestinationCubit() : super(DestinationInitial());
 
-  void loadDestinations() {
+  Future<void> loadDestinations() async {
+    try {
     final destinations = [
       Destination(
         name: 'Paris',
@@ -163,7 +169,58 @@ class DestinationCubit extends Cubit<DestinationState> {
       ),
     ];
 
+    // Carrega favoritos salvos
+    final favorites = await _loadFavorites();
+
+    // Marca os destinos favoritos
+    for (var destination in destinations) {
+      if (favorites.contains(destination.name)) {
+        destination.isFavorite = true;
+      }
+    }
+
     emit(DestinationLoaded(destinations));
+    } catch (e) {
+      emit(DestinationInitial()); // Estado inicial em caso de erro
+    }
+  }
+
+  void toggleFavorite(Destination destination) async {
+    if (state is DestinationLoaded) {
+      final currentDestinations = (state as DestinationLoaded).destinations;
+
+      // Atualiza o estado 'isFavorite'
+      final updatedDestinations = currentDestinations.map((dest) {
+        if (dest.name == destination.name) {
+          return Destination(
+            name: dest.name,
+            description: dest.description,
+            description2: dest.description2,
+            imageUrl: dest.imageUrl,
+            isFavorite: !dest.isFavorite,
+          );
+        }
+        return dest;
+      }).toList();
+
+      emit(DestinationLoaded(updatedDestinations));
+
+      // Atualiza os favoritos salvos
+      await _saveFavorites(updatedDestinations.where((d) => d.isFavorite).toList());
+    }
+  }
+
+  Future<void> _saveFavorites(List<Destination> favorites) async {
+    final prefs = await SharedPreferences.getInstance();
+    final favoriteNames = favorites.map((d) => d.name).toList();
+    await prefs.setString(_favoritesKey, jsonEncode(favoriteNames));
+  }
+
+  Future<List<String>> _loadFavorites() async {
+    final prefs = await SharedPreferences.getInstance();
+    final favoritesJson = prefs.getString(_favoritesKey);
+    if (favoritesJson == null) return [];
+    return List<String>.from(jsonDecode(favoritesJson));
   }
 
   List<Destination> getFavorites() {
@@ -174,29 +231,5 @@ class DestinationCubit extends Cubit<DestinationState> {
     }
     return [];
   }
-
-  void toggleFavorite(Destination destination) {
-    if (state is DestinationLoaded) {
-      final currentDestinations = (state as DestinationLoaded).destinations;
-
-      // Cria uma cópia do destino com o novo estado de 'isFavorite'
-      final updatedDestinations = currentDestinations.map((dest) {
-        if (dest == destination) {
-          return Destination(
-            name: dest.name,
-            description: dest.description,
-            description2: dest.description2,
-            imageUrl: dest.imageUrl,
-            isFavorite: !dest.isFavorite, // Alteração do estado 'isFavorite'
-          );
-        }
-        return dest; // Mantém o destino original
-      }).toList();
-
-      // Emite o estado com a lista de destinos atualizada
-      emit(DestinationLoaded(updatedDestinations));
-    }
-  }
-
-
 }
+
